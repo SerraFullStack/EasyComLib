@@ -6,34 +6,32 @@ using System.Text;
 
 namespace EasyComLib
 {
-	public delegate void DOnDeviceFind(Device device);
+	public delegate void DOnMessage(Message message);
 
     public class ReCom
     {
 		const string AutoCreateId = "AutoCreateId";
 		const string NotFound = "NotFound";
-
-		string type;
+		const string All = "All";
+  
 		string id;
+
+		DOnMessage onMessage;
 
 		//this variable contains all connections (from clients and to anothers servers)
 		List<Socket> connections = new List<Socket>();
 
 		//this upd clinet is used to respond device identifications message      
 		private UdpClient udpClient = new UdpClient(22500);
-		public ReCom(string type, string id = AutoCreateId)
+		public ReCom(string id = AutoCreateId)
         {
-			//save the type and id
-			this.type = type;
+			//save the id
 			this.id = id;
 
 			//start UPD listenner
 			this.udpClient.BeginReceive(OnUdpClinetReceive, new object());
             
-            //start TCP listenner
-            
-
-
+            //start TCP listenner         
 
         }
 
@@ -43,7 +41,7 @@ namespace EasyComLib
         /// <returns>The by identifier.</returns>
         /// <param name="id">Identifier.</param>
         /// <param name="onfind">Onfind.</param>
-		public ReCom FindById(string id, DOnDeviceFind onfind)
+		public ReCom ConnectTo(string id, Action onSucess, Action onError)
 		{
 			//looking in stablishd connections for a desired id
 
@@ -56,31 +54,30 @@ namespace EasyComLib
                 //if anyone connection wasn't found, send upd pack looking for
             
 			return this;
+		}  
+
+		public ReCom Disconnect(string id = All){
+
+			return this;
 		}
 
-        /// <summary>
-		/// Finds devices by type.
-        /// </summary>
-        /// <returns>The by type.</returns>
-        /// <param name="id">Identifier.</param>
-        /// <param name="onfind">Onfind.</param>
-		public ReCom FindByType(string id, DOnDeviceFind onfind)
-        {
+		public ReCom SetOnMessage(DOnMessage onMessage)
+		{
+			this.onMessage = onMessage;         
+			return this;
+		}
 
-            return this;
-        }
+		public ReCom waitNextMessage(string title, DOnMessage onNextMessage)
+		{
 
-        /// <summary>
-		/// Finds one device by the type.
-        /// </summary>
-        /// <returns>The by one by type.</returns>
-        /// <param name="id">Identifier.</param>
-        /// <param name="onfind">Onfind.</param>
-		public ReCom FindByOneByType(string id, DOnDeviceFind onfind)
-        {
+			return this;
+		}
 
-            return this;
-        }      
+		public ReCom sendMessage(string title, string[] arguments, string id = All)
+		{
+
+			return this;
+		}
 
 		private void OnUdpClinetReceive(IAsyncResult ar){
 			IPEndPoint ip = new IPEndPoint(IPAddress.Any, 15000);
@@ -88,31 +85,13 @@ namespace EasyComLib
             string message = Encoding.ASCII.GetString(bytes);
 
 			//parse the received message (lft = looking for type, lfi = looking for id)
-			if (getValueFromPack(message, "pk") == "lft")
+			if (message.Contains("lti"))
 			{
 				
 			}
-			else if (getValueFromPack(message, "pk") == "lfi")
-			{
-				
-			}
-            
-
+         
 			this.udpClient.BeginReceive(OnUdpClinetReceive, new object());
 		}
-
-        private string getValueFromPack(string pack, string key, string defaultValue = NotFound)
-		{
-			key = key.ToLower();
-			string[] parts = pack.Split(';');
-			foreach (var c in parts)
-			{
-				if (c.Contains("=") && (c.Substring(0, c.IndexOf("=")).ToLower() == key))
-					return "";
-			}
-
-			return defaultValue;
-			
-		}
+  
     }
 }

@@ -7,7 +7,8 @@ namespace EasyComLib
         {
         }
 
+		public string SenderId;
 		public string Title;
-		public string[] arguments;
+		public string[] Arguments;
     }
 }
