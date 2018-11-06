@@ -136,18 +136,80 @@ namespace EasyComLib
 
         public ReCom SetOnMessage(DOnMessage onMessage)
         {
-            this.onMessage = onMessage;
+            this.onMessage += onMessage;
             return this;
         }
 
-        public ReCom waitNextMessage(string title, DOnMessage onNextMessage)
+		Dictionary<string, List<DOnMessage>> waitingMessages = new Dictionary<string, List<DOnMessage>>();
+		public ReCom waitNextMessage(string title, DOnMessage onNextMessage)
         {
+			if (!waitingMessages.ContainsKey(title))
+				waitingMessages[title] = new List<DOnMessage>();
+
+			waitingMessages[title].Add(onNextMessage);
 
             return this;
         }
 
         public ReCom sendMessage(string title, string[] arguments, string id = All)
         {
+			id = id.ToLower();
+			byte[] intAsByte = new byte[4];
+			//prepare the buffer that will be sented to destination(s)
+			List<byte> buffer = new List<byte>();
+			buffer.Add(0x02);
+			buffer.Add(0x02);
+			buffer.AddRange(Encoding.UTF8.GetBytes("pkme;"+this.id+';'+id+';'+title+';'));
+
+			intAsByte = BitConverter.GetBytes(arguments.Length);
+			if (!BitConverter.IsLittleEndian)
+				Array.Reverse(intAsByte);
+			buffer.AddRange(intAsByte);
+			buffer.Add(Convert.ToByte(';'));
+
+			foreach (var c in arguments)
+			{
+				//add the size of argument
+				intAsByte = BitConverter.GetBytes(c.Length);
+                if (!BitConverter.IsLittleEndian)
+                    Array.Reverse(intAsByte);
+                buffer.AddRange(intAsByte);
+				buffer.Add(Convert.ToByte(';'));
+
+
+				//add the argument
+				buffer.AddRange(Encoding.UTF8.GetBytes(c));
+				buffer.Add(Convert.ToByte(';'));            
+			}
+
+			//add the pack end
+			buffer.Add(0xFF);
+			buffer.Add(0xFF);
+
+
+			byte[] sendBuffer = buffer.ToArray();
+
+			//send the pack
+			if (id == All)
+			{
+				foreach (var c in this.connections)
+					c.Value.Send(sendBuffer);
+			}
+			else
+			{
+				if (this.connections.ContainsKey(id) && !this.connections[id].Connected)
+					this.connections.Remove(id);
+
+				if (!this.connections.ContainsKey(id))
+				{
+					ConnectTo(id, delegate ()
+					{
+						this.connections[id].Send(sendBuffer);
+					}, delegate () { });
+				}
+				else
+					this.connections[id].Send(sendBuffer);            
+			}
 
             return this;
         }
@@ -194,7 +256,7 @@ namespace EasyComLib
 											rawBuffer.RemoveRange(0, count+1);
 											rawBuffer = this.readItsMePack(clientSocket, rawBuffer);
 										}
-										else if (packType == "pkim")
+										else if (packType == "pkme")
 										{
 											rawBuffer.RemoveRange(0, count+1);
 											rawBuffer = this.readMessagePack(clientSocket, rawBuffer);
@@ -218,9 +280,9 @@ namespace EasyComLib
 			th.Start();
         }
 
+
         private List<byte> readItsMePack(Socket clientSocket, List<byte> startBuffer)
         {
-            string id = "";
             //read remote id, until receive a 0xFF 
             byte c = 0;
 
@@ -233,6 +295,7 @@ namespace EasyComLib
 					c = startBuffer[0];
 					startBuffer.RemoveAt(0);
 
+                    //read the id until found  a 0xFF byte
                     if ((c == 0xff) || (id.Length >= 1024))
                         done = true;
                     else
@@ -257,7 +320,119 @@ namespace EasyComLib
 
 		private List<byte> readMessagePack(Socket clientSocket, List<byte> startBuffer)
         {
-            return new List<byte>();
+			//read remote id, until receive a 0xFF 
+            byte c = 0;
+
+            bool done = false;
+			string state = "readingSenderId";
+			Message incomingMessage = new Message();
+
+			byte[] intAsArray = new byte[4];
+			int intAsArrayCount = 0;
+            
+            UInt32 readedArguments = 0;
+            UInt32 totalArguments = 0;
+
+            byte[] currentArgumentBuffer = new byte[0];
+            UInt32 currentArgumentBufferSize = 0;
+            UInt32 currentArgumentBufferReadedBytes = 0;
+
+            while (!done)
+			{
+                while (startBuffer.Count > 0)
+                {
+					c = startBuffer[0];
+                    startBuffer.RemoveAt(0);
+					switch (state)
+					{
+						case "readingSenderId":
+							if (c != ';')
+								incomingMessage.SenderId += Convert.ToChar(c);
+							else
+								state = "readingDestinationId";                     
+							break;
+						case "readingDestinationId":
+							if (c != ';')
+								incomingMessage.DestinationId += Convert.ToChar(c);
+                            else
+                                state = "readingMessageTitle";
+							break;
+						case "readingMessageTitle":
+                            if (c != ';')
+								incomingMessage.Title += Convert.ToChar(c);
+                            else
+                                state = "readingArgumentCount";
+                            break;
+						case "readingArgumentCount":
+							intAsArray[intAsArrayCount++] = c;
+							if (intAsArrayCount == 4)
+							{
+								if (!BitConverter.IsLittleEndian)
+									Array.Reverse(intAsArray);
+								
+								 totalArguments = BitConverter.ToUInt32(intAsArray, 0);
+
+								intAsArray = new byte[4];
+								intAsArrayCount = 0;
+								state = "readingNextArgumentSize";
+							}
+							break;
+						case "readingNextArgumentSize":
+							if (intAsArrayCount <= 4)
+                                intAsArray[intAsArrayCount++] = c;
+							//skip a ';'
+							if (intAsArrayCount >= 5)
+                            {
+                                if (!BitConverter.IsLittleEndian)
+                                    Array.Reverse(intAsArray);
+
+								currentArgumentBufferSize = BitConverter.ToUInt32(intAsArray, 0);
+                                currentArgumentBuffer = new byte[currentArgumentBufferSize];
+								currentArgumentBufferReadedBytes = 0;
+                                
+                                intAsArray = new byte[4];
+                                intAsArrayCount = 0;
+								if (currentArgumentBuffer.Length > 0)
+                                    state = "readingNextArgument";
+
+                            }
+							break;
+						case "readingNextArgument":
+							if (currentArgumentBufferReadedBytes < currentArgumentBufferSize)
+							    currentArgumentBuffer[currentArgumentBufferReadedBytes++] = c;
+							//skyp the ';' at end
+							else if (currentArgumentBufferReadedBytes > currentArgumentBufferSize)
+							{
+								incomingMessage.Arguments.Add(currentArgumentBuffer);
+								currentArgumentBuffer = new byte[0];
+
+								readedArguments++;
+								if (readedArguments < totalArguments)
+									state = "readingNextArgumentSize";
+								else
+								{
+									state = "done";
+									done = true;
+								}
+							}                     
+
+							break;
+					}
+                }
+
+                //checks if exists more data to receive by socket
+                if (clientSocket.Available > 0)
+                {
+                    byte[] temp = new byte[clientSocket.Available];
+                    clientSocket.Receive(temp);
+                    startBuffer.AddRange(temp);               
+                }
+            }
+
+			//cal onMessage events
+			this.onMessage.Invoke(incomingMessage);
+
+            return startBuffer;
         }
 
 
@@ -290,7 +465,10 @@ namespace EasyComLib
             this.udpClient.BeginReceive(OnUdpClinetReceive, new object());
         }
 
-
+        /// <summary>
+        /// This list is used to prevent a excessive connections to a server when a lot of "looking for id" was received 
+		/// in sequence.
+        /// </summary>
 		List<string> connectingPendings = new List<string>();
         private ReCom connectToTcpServer(string ip, int port, string remoteId, Action onSucess, Action onError)
         {
@@ -302,19 +480,19 @@ namespace EasyComLib
             //start connection
             cli.BeginConnect(ip, port, delegate (IAsyncResult ar)
 			{
-			cli.EndConnect(ar);
+    			cli.EndConnect(ar);
 
-			if (cli.Client.Connected)
-			{
-				this.connections[remoteId] = cli.Client;
-                onSucess();
-            }
-            else
-            {
-                if (this.connections.ContainsKey(remoteId))
-                    this.connections.Remove(remoteId);
-                onError();
-            }
+    			if (cli.Client.Connected)
+    			{
+    				this.connections[remoteId] = cli.Client;
+                    onSucess();
+                }
+                else
+                {
+                    if (this.connections.ContainsKey(remoteId))
+                        this.connections.Remove(remoteId);
+                    onError();
+                }
 
             }, new object());
 

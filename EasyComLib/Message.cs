@@ -22,16 +22,20 @@ FROM, OUT OF OR IN CONNECTION WITH THE  SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 */
 using System;
+using System.Collections.Generic;
+using System.Text;
+
 namespace EasyComLib
 {
     public class Message
-    {
-        public Message()
-        {
-        }
-
+    {      
 		public string SenderId;
+		public string DestinationId;
 		public string Title;
-		public string[] Arguments;
+		public List<byte[]> Arguments;
+        public string GetArgString(int index)
+		{
+			return Encoding.UTF8.GetString(this.Arguments[index]);         
+		}
     }
 }
