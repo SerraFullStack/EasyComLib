@@ -19,7 +19,7 @@ namespace EasyComLib
 		DOnMessage onMessage;
 
 		//this variable contains all connections (from clients and to anothers servers)
-		List<Socket> connections = new List<Socket>();
+		Dictionary<string, Socket> connections = new Dictionary<string, Socket>();
 
 		//this upd clinet is used to respond device identifications message      
 		private UdpClient udpClient = new UdpClient(22500);
@@ -51,7 +51,7 @@ namespace EasyComLib
 
                     //if the found connection isn't active, remove their for active devices and send udp pack
 
-                //if anyone connection wasn't found, send upd pack looking for
+			//if anyone connection wasn't found, send upd pack looking for the remote id (lfi pack)
             
 			return this;
 		}  
@@ -79,18 +79,75 @@ namespace EasyComLib
 			return this;
 		}
 
-		private void OnUdpClinetReceive(IAsyncResult ar){
+		private void OnUdpClinetReceive(IAsyncResult ar)
+		{
 			IPEndPoint ip = new IPEndPoint(IPAddress.Any, 15000);
 			byte[] bytes = this.udpClient.EndReceive(ar, ref ip);
             string message = Encoding.ASCII.GetString(bytes);
 
 			//parse the received message (lft = looking for type, lfi = looking for id)
-			if (message.Contains("lti"))
+			if (message.Contains("lfi"))
 			{
-				
+				//check if the request id is the same of this.id
+				//[0x02 0x02]lfi;[senderId];[sender ip];[sender tcp port];[desired id]
+				string[] messageParts = message.Split(';');
+				string senderId = messageParts[1];
+				string senderIp = messageParts[2];
+				string senderTcpPort = messageParts[3];
+				string desiredId = messageParts[4];
+
+                if (desiredId == this.id)
+				{
+					this.connectToTcpServer(senderIp, int.Parse(senderTcpPort), desiredId, delegate(){
+					this.sendItsMePack(desiredId);
+					}, delegate(){});
+				}
+                
 			}
          
 			this.udpClient.BeginReceive(OnUdpClinetReceive, new object());
+		}
+
+
+        private ReCom connectToTcpServer(string ip, int port, string remoteId, Action onSucess, Action onError)
+		{
+			TcpClient cli = new TcpClient();
+            //start connection
+			cli.BeginConnect(ip, port, delegate (IAsyncResult ar) {
+				cli.EndConnect(ar);
+
+				if (cli.Client.Connected)
+				{
+					this.connections[remoteId] = cli.Client;
+					onSucess();
+				}
+				else
+				{
+					if (this.connections.ContainsKey(remoteId))
+						this.connections.Remove(remoteId);
+					onError();
+				}
+			
+			}, new object());
+
+			return this;
+		}
+
+		private ReCom sendItsMePack(string remoteId)
+		{
+			if (this.connections.ContainsKey(remoteId))
+			{
+				List<Byte> pack = new List<byte>();
+				pack.Add(2);
+				pack.Add(2);
+				pack.AddRange(Encoding.UTF8.GetBytes("pkim;" + this.id));
+				pack.Add(0xFF);
+                pack.Add(0xFF);
+
+				this.connections[remoteId].Send(pack.ToArray());
+			}
+
+			return this;
 		}
   
     }
