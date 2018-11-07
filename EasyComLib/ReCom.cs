@@ -36,9 +36,9 @@ namespace EasyComLib
     public class ReCom
     {
         public static Random rnd = new Random((int)DateTime.Now.ToBinary());
-        const string AutoCreateId = "AutoCreateId";
-        const string NotFound = "NotFound";
-        const string All = "All";
+        const string AutoCreateId = "autocreateid";
+        const string NotFound = "notfound";
+        const string All = "all";
 
         string id;
         event DOnMessage onMessage;
@@ -126,10 +126,12 @@ namespace EasyComLib
                 Thread.Sleep(100);
                 if (this.connections.ContainsKey(id))
                 {
+                    sendBuffer.Clear();
                     onSucess();
                     return this;
                 }
             }
+            sendBuffer.Clear();
             onError();
             return this;
         }
@@ -198,8 +200,19 @@ namespace EasyComLib
             //send the pack
             if (id == All)
             {
+                List<string> toRemove = new List<string>();
                 foreach (var c in this.connections)
-                    c.Value.Send(sendBuffer);
+                {
+                    if (!c.Value.Connected)
+                        toRemove.Add(c.Key);
+                    else
+                        c.Value.Send(sendBuffer);
+                }
+
+                foreach (var c in toRemove)
+                {
+                    this.connections.Remove(c);
+                }
             }
             else
             {
@@ -216,6 +229,9 @@ namespace EasyComLib
                 else
                     this.connections[id].Send(sendBuffer);
             }
+
+            sendBuffer = new byte[0];
+            buffer.Clear();
 
             return this;
         }
@@ -451,6 +467,16 @@ namespace EasyComLib
                 }
             }
 
+            //check if someone is waiting form a message
+            if (waitingMessages.ContainsKey(incomingMessage.Title))
+            {
+                foreach (var curr in waitingMessages[incomingMessage.Title])
+                    curr.Invoke(incomingMessage);
+
+                waitingMessages[incomingMessage.Title].Clear();
+                waitingMessages.Remove(incomingMessage.Title);
+            }
+
             //cal onMessage events
             this.onMessage.Invoke(incomingMessage);
 
@@ -539,6 +565,7 @@ namespace EasyComLib
 
                 //send pack to remoteId
                 this.connections[remoteId].Send(pack.ToArray());
+                pack.Clear();
             }
 
             return this;
