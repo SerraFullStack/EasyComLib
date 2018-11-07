@@ -28,14 +28,14 @@ using System.Text;
 namespace EasyComLib
 {
     public class Message
-    {      
-		public string SenderId;
-		public string DestinationId;
-		public string Title;
-		public List<byte[]> Arguments;
+    {
+        public string SenderId;
+        public string DestinationId;
+        public string Title;
+        public List<byte[]> Arguments = new List<byte[]>();
         public string GetArgString(int index)
-		{
-			return Encoding.UTF8.GetString(this.Arguments[index]);         
-		}
+        {
+            return Encoding.UTF8.GetString(this.Arguments[index]);
+        }
     }
 }
