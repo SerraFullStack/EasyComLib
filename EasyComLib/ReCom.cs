@@ -123,7 +123,7 @@ namespace EasyComLib
 
 
 
-            while (DateTime.Now.Subtract(s).TotalMilliseconds <= 10000)
+            while (DateTime.Now.Subtract(s).TotalMilliseconds <= 5000)
             {
                 client.Send(sendBuffer.ToArray(), sendBuffer.Count, ip);
                 Thread.Sleep(100);
@@ -272,10 +272,12 @@ namespace EasyComLib
             {
                 string state = "readingStx";
                 List<byte> buffer = new List<byte>();
+                DateTime lastValidPack = DateTime.Now;
                 while (socket.Connected)
                 {
                     if (socket.Available > 0)
                     {
+                        lastValidPack = DateTime.Now;
                         byte[] temp = new byte[socket.Available];
                         socket.Receive(temp);
                         List<byte> rawBuffer = new List<byte>(temp);
@@ -323,7 +325,11 @@ namespace EasyComLib
 
                     }
                     else
+                    {
+                        if (DateTime.Now.Subtract(lastValidPack).TotalMilliseconds > 5000)
+                            state = "readingStx";
                         Thread.Sleep(10);
+                    }
                 }
             });
             th.Start();
@@ -338,7 +344,7 @@ namespace EasyComLib
             bool done = false;
 
             string remoteId = "";
-
+            DateTime lastValidPack = DateTime.Now;
             while (!done)
             {
                 while (startBuffer.Count > 0)
@@ -355,10 +361,16 @@ namespace EasyComLib
 
                 if (clientSocket.Available > 0)
                 {
+                    lastValidPack = DateTime.Now;
                     byte[] temp = new byte[clientSocket.Available];
                     clientSocket.Receive(temp);
                     startBuffer.AddRange(temp);
-
+                }
+                else
+                {
+                    if (DateTime.Now.Subtract(lastValidPack).TotalMilliseconds > 5000)
+                        done = true;
+                    Thread.Sleep(10);
                 }
             }
 
@@ -390,6 +402,7 @@ namespace EasyComLib
             byte[] currentArgumentBuffer = new byte[0];
             UInt32 currentArgumentBufferSize = 0;
             UInt32 currentArgumentBufferReadedBytes = 0;
+            DateTime lastValidPack = DateTime.Now;
 
             while (!done)
             {
@@ -490,9 +503,19 @@ namespace EasyComLib
                 //checks if exists more data to receive by socket
                 if (clientSocket.Available > 0)
                 {
+                    lastValidPack = DateTime.Now;
                     byte[] temp = new byte[clientSocket.Available];
                     clientSocket.Receive(temp);
                     startBuffer.AddRange(temp);
+                }
+                else
+                {
+                    if (DateTime.Now.Subtract(lastValidPack).TotalMilliseconds > 5000)
+                    {
+                        state = "done";
+                        done = true;
+                    }
+                    Thread.Sleep(10);
                 }
             }
 
