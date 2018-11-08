@@ -35,7 +35,7 @@ namespace EasyComLib
 
     public class ReCom
     {
-        public static Random rnd = new Random((int)DateTime.Now.ToBinary());
+        public static Random rnd = null;
         const string AutoCreateId = "autocreateid";
         const string NotFound = "notfound";
         const string All = "all";
@@ -49,9 +49,28 @@ namespace EasyComLib
         Dictionary<string, Socket> connections = new Dictionary<string, Socket>();
 
         //this upd clinet is used to respond device identifications message      
-        private UdpClient udpClient = new UdpClient(22500);
+        private UdpClient udpClient;
+        
+        static IPEndPoint localIp = new IPEndPoint(IPAddress.Any, 22500);
+        
+        
         public ReCom(string id = AutoCreateId)
         {
+            udpClient = new UdpClient();
+            udpClient.ExclusiveAddressUse = false;
+            udpClient.MulticastLoopback = true;
+            udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            udpClient.Client.Bind(localIp);
+            this.udpClient.BeginReceive(OnUdpClinetReceive, new object());
+            
+            if (rnd == null) 
+            {
+                long seed = DateTime.Now.ToBinary();
+                seed = seed % Int32.MaxValue;
+                int seedAsInt = (int)seed;
+                rnd = new Random(seedAsInt);
+            }
+            
             if (id == AutoCreateId)
             {
                 id = DateTime.Now.ToString("ddMMyyhhmmss") + rnd.Next().ToString();
@@ -60,7 +79,7 @@ namespace EasyComLib
             this.id = id.ToLower();
 
             //start UPD listenner
-            this.udpClient.BeginReceive(OnUdpClinetReceive, new object());
+            
 
             //start TCP listenner ****** change this to use a function to check if port is available
             int currTryingPort = 22500;
@@ -110,9 +129,18 @@ namespace EasyComLib
             //if connection to desired id wasn't found, send upd pack looking for the remote id (lfi pack)
 
             DateTime s = DateTime.Now;
+            
 
             UdpClient client = new UdpClient();
-            IPEndPoint ip = new IPEndPoint(IPAddress.Broadcast, 22500);
+            
+            client.ExclusiveAddressUse = false;
+            client.MulticastLoopback = true;
+            client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            //IPEndPoint ep2 = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 22500);
+            IPEndPoint ep2 = new IPEndPoint(IPAddress.Broadcast, 22500);
+            //client.Client.Bind(ep2);
+            
+            
             List<byte> sendBuffer = new List<byte>();
             sendBuffer.Add(0x02);
             sendBuffer.Add(0x02);
@@ -125,7 +153,7 @@ namespace EasyComLib
 
             while (DateTime.Now.Subtract(s).TotalMilliseconds <= 5000)
             {
-                client.Send(sendBuffer.ToArray(), sendBuffer.Count, ip);
+                client.Send(sendBuffer.ToArray(), sendBuffer.Count, ep2);
                 Thread.Sleep(100);
                 if (this.connections.ContainsKey(id))
                 {
@@ -538,8 +566,8 @@ namespace EasyComLib
 
         private void OnUdpClinetReceive(IAsyncResult ar)
         {
-            IPEndPoint ip = new IPEndPoint(IPAddress.Any, 22500);
-            byte[] bytes = this.udpClient.EndReceive(ar, ref ip);
+            //IPEndPoint ip = new IPEndPoint(IPAddress.Any, 22500);
+            byte[] bytes = this.udpClient.EndReceive(ar, ref localIp);
             string message = Encoding.ASCII.GetString(bytes);
 
             //parse the received message (lft = looking for type, lfi = looking for id)
